@@ -11,7 +11,7 @@ from rag.bm25 import BM25Store
 ARTIFACTS = {
     "texts": "texts.json",
     "meta": "meta.json",
-    "faiss": "index.json",
+    "faiss": "index.faiss",
     "bm25": "bm25.json"
 }
 
