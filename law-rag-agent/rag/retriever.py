@@ -13,7 +13,7 @@ def reciprocal_rank_fusion(ranked_lists: List[List[int]], k: int = 10, const: in
             scores[doc_id] = scores.get(doc_id, 0.0) + 1.0 / (const + rank + 1.0)
     return [doc_id for doc_id, _ in sorted(scores.items(), key=lambda x: x[1], reverse=True)[:k]]
 
-def hybrid_retriever(query: str, faiss_index, texts, meta, bm25_store, embed_fn, top_k: int = 6) -> List[Dict]:
+def hybrid_retrieve(query: str, faiss_index, texts, meta, bm25_store, embed_fn, top_k: int = 6) -> List[Dict]:
     qvec = embed_fn([query])
     dense_hits = _faiss_search(faiss_index, qvec, k=20)
     dense_ids = [i for i, _ in dense_hits]

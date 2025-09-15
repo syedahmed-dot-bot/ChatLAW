@@ -8,7 +8,7 @@ from api.schemas import (
 from pathlib import Path
 from config.settings import settings
 from rag.service import rag_runtime
-from rag.retriever import hybrid_retriever
+from rag.retriever import hybrid_retrieve
 
 DEFAULT_TOP_K = 6
 
@@ -51,9 +51,52 @@ def debug_index():
         "files": [str(f.name) for f in files][:20]  # first 20 files
     }
 @app.post("/v1/search", response_model = SearchResponse, tags=["rag"])
-def search(req: AnswerRequest) -> AnswerResponse:
-    return AnswerResponse(
-    answer = f"(placeholder) You asked: {req.query}. RAG not yet initiaiized",
-    citations = []
+def search(req: SearchRequest) -> SearchResponse:
+    if rag_runtime.faiss_index is None:
+        raise HTTPException(status_code=503, detail = 'Index not loaded. run ingest first')
+    
+    top_k = req.top_k or settings.TOP_K
+    hits = hybrid_retrieve(
+        req.query,
+        rag_runtime.faiss_index,
+        rag_runtime.texts,
+        rag_runtime.meta,
+        rag_runtime.bm25,
+        rag_runtime.embed,
+        top_k = top_k,
     )
 
+    return SearchResponse(results=[RetrievedChunk(**h) for h in hits])
+
+
+@app.post("/v1/answer", response_model=AnswerResponse, tags=["rag"])
+def answer(req: AnswerRequest) -> AnswerResponse:
+    if rag_runtime.faiss_index is None:
+        raise HTTPException(status_code=503, detail="Index not loaded. Run ingest first.")
+
+    top_k = req.top_k or settings.TOP_K
+    hits = hybrid_retrieve(
+        req.query,
+        rag_runtime.faiss_index,
+        rag_runtime.texts,
+        rag_runtime.meta,
+        rag_runtime.bm25,
+        rag_runtime.embed,
+        top_k=top_k,
+    )
+
+    if not hits:
+        return AnswerResponse(answer="No relevant context found.", citations=[])
+
+    paras, cites = [], []
+    for h in hits:
+        cite = f"[{h['source']}{f' p.{h['page']}' if h.get('page') else ''}]"
+        paras.append(f"{h['text']}\n{cite}")
+        cites.append(cite)
+
+    stitched = "\n\n---\n\n".join(paras)
+
+    return AnswerResponse(
+        answer=f"(context-only draft)\nQ: {req.query}\n\n{stitched}",
+        citations=list(dict.fromkeys(cites))
+    )

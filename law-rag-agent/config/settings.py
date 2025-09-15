@@ -4,8 +4,8 @@ from pydantic_settings import BaseSettings
 from pydantic import Field
 
 class Settings(BaseSettings):
-    APP_NAME: str = "ChatLAW Backend"
-    APP_VERSION: str = "0.2.0"
+    APP_NAME: str = "ChatLAW"
+    APP_VERSION: str = "0.1.0"
     DEBUG: bool = True
 
     CORS_ALLOW_ORIGINS: list[str] = ["*"]
