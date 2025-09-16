@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from api.schemas import (
@@ -9,6 +9,8 @@ from pathlib import Path
 from config.settings import settings
 from rag.service import rag_runtime
 from rag.retriever import hybrid_retrieve
+from agents.drafting import generate_answer
+from groq import Groq
 
 DEFAULT_TOP_K = 6
 
@@ -41,6 +43,25 @@ def health() -> HealthResponse:
     status = 'ok' if rag_runtime.faiss_index is not None else "degraded"
     return HealthResponse(status=status, service=settings.APP_NAME, version = settings.APP_VERSION)
 
+@app.get("/debug/groq_ping", tags=["meta"])
+def groq_ping(model: str = Query(default=None, description="Override model (optional)")):
+    mdl = model or settings.LLM_MODEL
+    try:
+        client = Groq(api_key=settings.GROQ_API_KEY)
+        resp = client.chat.completions.create(
+            model=mdl,
+            messages=[{"role": "user", "content": "Say: ping"}],
+            max_tokens=10,
+            temperature=0.0,
+        )
+        return {
+            "ok": True,
+            "model": mdl,
+            "content": resp.choices[0].message.content,
+            "usage": getattr(resp, "usage", None),
+        }
+    except Exception as e:
+        return {"ok": False, "model": mdl, "error": repr(e)}
 def debug_index():
     p = Path(settings.INDEX_DIR).resolve()
     files = list(p.glob("*")) if p.exists() else []
@@ -88,15 +109,14 @@ def answer(req: AnswerRequest) -> AnswerResponse:
     if not hits:
         return AnswerResponse(answer="No relevant context found.", citations=[])
 
-    paras, cites = [], []
+    content = generate_answer(req.query, hits)
+
+    # Collect unique citations (order-preserving)
+    cites = []
     for h in hits:
-        cite = f"[{h['source']}{f' p.{h['page']}' if h.get('page') else ''}]"
-        paras.append(f"{h['text']}\n{cite}")
-        cites.append(cite)
+        c = f"[{h['source']}{f' p.{h['page']}' if h.get('page') else ''}]"
+        if c not in cites:
+            cites.append(c)
 
-    stitched = "\n\n---\n\n".join(paras)
+    return AnswerResponse(answer=content, citations=cites)
 
-    return AnswerResponse(
-        answer=f"(context-only draft)\nQ: {req.query}\n\n{stitched}",
-        citations=list(dict.fromkeys(cites))
-    )
